@@ -12,11 +12,9 @@ env:
   POCKETBASE_VERSION: '0.22.0'
 
 jobs:
-  # ═══════════════════════════════════════════════
-  # 1. BUILD WINDOWS (x64) + PocketBase
-  # ═══════════════════════════════════════════════
   build-windows:
-    runs-on: windows-latest
+    # 🔑 تثبيت الإصدار على 2022 لتجنب مشكلة Visual Studio 2026
+    runs-on: windows-2022
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -31,7 +29,6 @@ jobs:
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
 
-      # 🔑 إنشاء مجلد windows/ إذا لم يكن موجوداً (لأن المشروع أُنشئ على Termux)
       - name: Add Windows platform support (if missing)
         run: flutter create --platforms=windows --no-overwrite .
 
@@ -45,10 +42,8 @@ jobs:
         shell: pwsh
         run: |
           $url = "https://github.com/pocketbase/pocketbase/releases/download/v${{ env.POCKETBASE_VERSION }}/pocketbase_${{ env.POCKETBASE_VERSION }}_windows_amd64.zip"
-          Write-Host "Downloading: $url"
           Invoke-WebRequest -Uri $url -OutFile pb.zip
           Expand-Archive -Path pb.zip -DestinationPath pocketbase_bin -Force
-          Get-ChildItem pocketbase_bin
 
       - name: Package Windows (ZIP with PocketBase)
         shell: pwsh
@@ -60,22 +55,11 @@ jobs:
           @"
           Dental Clinic - Windows
           =======================
-
-          1. Pour le mode Serveur (Hote) :
-             - Ouvrez un terminal (cmd) dans ce dossier
-             - Executez : pocketbase.exe serve --http=0.0.0.0:8090
-             - Puis lancez dental_clinic.exe
-
-          2. Pour le mode Client :
-             - Lancez dental_clinic.exe
-             - Dans Reglages, entrez l'adresse IP du serveur (ex: http://192.168.1.10:8090)
-
-          Developpe par HAMITI Nassim
-          Email: nas.hamiti89@gmail.com
-          Tel: 0699030986
+          1. Pour le mode Serveur : pocketbase.exe serve --http=0.0.0.0:8090
+          2. Puis lancez dental_clinic.exe
+          Développé par HAMITI Nassim
           "@ | Out-File -FilePath dist_windows\LISEZMOI.txt -Encoding utf8
           Compress-Archive -Path dist_windows\* -DestinationPath DentalClinic-Windows.zip -Force
-          Get-Item DentalClinic-Windows.zip | Select-Object Name, Length
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -85,9 +69,6 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-  # ═══════════════════════════════════════════════
-  # 2. BUILD ANDROID (APK release)
-  # ═══════════════════════════════════════════════
   build-android:
     runs-on: ubuntu-latest
     steps:
@@ -107,7 +88,6 @@ jobs:
           flutter-version: ${{ env.FLUTTER_VERSION }}
           cache: true
 
-      # 🔑 إنشاء مجلد android/ إذا لم يكن موجوداً
       - name: Add Android platform support (if missing)
         run: flutter create --platforms=android --no-overwrite .
 
