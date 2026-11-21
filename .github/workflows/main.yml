@@ -1,0 +1,121 @@
+name: Build Dental Clinic (Windows + Android)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:   # permet le lancement manuel depuis l'onglet Actions
+
+env:
+  FLUTTER_VERSION: '3.24.0'
+  POCKETBASE_VERSION: '0.22.0'   # vérifiez la dernière version sur pocketbase.io
+
+jobs:
+  # ═══════════════════════════════════════════════
+  # 1. BUILD WINDOWS (x64)
+  # ═══════════════════════════════════════════════
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        run: flutter build windows --release
+        # Sortie : build\windows\x64\runner\Release\
+
+      - name: Download PocketBase (Windows)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/pocketbase/pocketbase/releases/download/v${{ env.POCKETBASE_VERSION }}/pocketbase_${{ env.POCKETBASE_VERSION }}_windows_amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile pb.zip
+          Expand-Archive -Path pb.zip -DestinationPath pocketbase_bin -Force
+
+      - name: Package Windows (ZIP with PocketBase)
+        shell: pwsh
+        run: |
+          # Créer un dossier de distribution
+          New-Item -ItemType Directory -Path dist_windows -Force
+
+          # Copier l'application Flutter
+          Copy-Item -Recurse -Force build\windows\x64\runner\Release\* dist_windows\
+
+          # Copier PocketBase
+          Copy-Item -Force pocketbase_bin\pocketbase.exe dist_windows\
+
+          # Créer un dossier pb_data vide (sera rempli au premier lancement)
+          New-Item -ItemType Directory -Path dist_windows\pb_data -Force
+
+          # Créer un fichier README pour l'utilisateur final
+          @"
+          Dental Clinic - Windows
+          =======================
+
+          1. Double-cliquez sur dental_clinic.exe pour lancer l'application.
+          2. Pour le mode Serveur (Hôte) :
+             - Ouvrez un terminal dans ce dossier
+             - Exécutez : pocketbase.exe serve --http=0.0.0.0:8090
+          3. Pour le mode Client :
+             - Modifiez l'adresse du serveur dans Réglages.
+
+          Développé par HAMITI Nassim
+          nas.hamiti89@gmail.com
+          "@ | Out-File -FilePath dist_windows\LISEZMOI.txt -Encoding utf8
+
+          # Compresser le tout
+          Compress-Archive -Path dist_windows\* -DestinationPath DentalClinic-Windows.zip -Force
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentalClinic-Windows
+          path: DentalClinic-Windows.zip
+          retention-days: 30
+
+  # ═══════════════════════════════════════════════
+  # 2. BUILD ANDROID (APK release)
+  # ═══════════════════════════════════════════════
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK (release)
+        run: flutter build apk --release
+        # Sortie : build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: DentalClinic-Android
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
