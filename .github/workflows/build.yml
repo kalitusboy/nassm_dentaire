@@ -5,15 +5,15 @@ on:
     branches: [ main, master ]
   pull_request:
     branches: [ main, master ]
-  workflow_dispatch:   # permet le lancement manuel depuis l'onglet Actions
+  workflow_dispatch:
 
 env:
   FLUTTER_VERSION: '3.24.0'
-  POCKETBASE_VERSION: '0.22.0'   # vérifiez la dernière version sur pocketbase.io
+  POCKETBASE_VERSION: '0.22.0'
 
 jobs:
   # ═══════════════════════════════════════════════
-  # 1. BUILD WINDOWS (x64)
+  # 1. BUILD WINDOWS (x64) + PocketBase
   # ═══════════════════════════════════════════════
   build-windows:
     runs-on: windows-latest
@@ -26,57 +26,56 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
 
       - name: Enable Windows desktop
         run: flutter config --enable-windows-desktop
+
+      # 🔑 إنشاء مجلد windows/ إذا لم يكن موجوداً (لأن المشروع أُنشئ على Termux)
+      - name: Add Windows platform support (if missing)
+        run: flutter create --platforms=windows --no-overwrite .
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build Windows (release)
         run: flutter build windows --release
-        # Sortie : build\windows\x64\runner\Release\
 
       - name: Download PocketBase (Windows)
         shell: pwsh
         run: |
           $url = "https://github.com/pocketbase/pocketbase/releases/download/v${{ env.POCKETBASE_VERSION }}/pocketbase_${{ env.POCKETBASE_VERSION }}_windows_amd64.zip"
+          Write-Host "Downloading: $url"
           Invoke-WebRequest -Uri $url -OutFile pb.zip
           Expand-Archive -Path pb.zip -DestinationPath pocketbase_bin -Force
+          Get-ChildItem pocketbase_bin
 
       - name: Package Windows (ZIP with PocketBase)
         shell: pwsh
         run: |
-          # Créer un dossier de distribution
           New-Item -ItemType Directory -Path dist_windows -Force
-
-          # Copier l'application Flutter
           Copy-Item -Recurse -Force build\windows\x64\runner\Release\* dist_windows\
-
-          # Copier PocketBase
           Copy-Item -Force pocketbase_bin\pocketbase.exe dist_windows\
-
-          # Créer un dossier pb_data vide (sera rempli au premier lancement)
           New-Item -ItemType Directory -Path dist_windows\pb_data -Force
-
-          # Créer un fichier README pour l'utilisateur final
           @"
           Dental Clinic - Windows
           =======================
 
-          1. Double-cliquez sur dental_clinic.exe pour lancer l'application.
-          2. Pour le mode Serveur (Hôte) :
-             - Ouvrez un terminal dans ce dossier
-             - Exécutez : pocketbase.exe serve --http=0.0.0.0:8090
-          3. Pour le mode Client :
-             - Modifiez l'adresse du serveur dans Réglages.
+          1. Pour le mode Serveur (Hote) :
+             - Ouvrez un terminal (cmd) dans ce dossier
+             - Executez : pocketbase.exe serve --http=0.0.0.0:8090
+             - Puis lancez dental_clinic.exe
 
-          Développé par HAMITI Nassim
-          nas.hamiti89@gmail.com
+          2. Pour le mode Client :
+             - Lancez dental_clinic.exe
+             - Dans Reglages, entrez l'adresse IP du serveur (ex: http://192.168.1.10:8090)
+
+          Developpe par HAMITI Nassim
+          Email: nas.hamiti89@gmail.com
+          Tel: 0699030986
           "@ | Out-File -FilePath dist_windows\LISEZMOI.txt -Encoding utf8
-
-          # Compresser le tout
           Compress-Archive -Path dist_windows\* -DestinationPath DentalClinic-Windows.zip -Force
+          Get-Item DentalClinic-Windows.zip | Select-Object Name, Length
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
@@ -84,6 +83,7 @@ jobs:
           name: DentalClinic-Windows
           path: DentalClinic-Windows.zip
           retention-days: 30
+          if-no-files-found: error
 
   # ═══════════════════════════════════════════════
   # 2. BUILD ANDROID (APK release)
@@ -105,13 +105,17 @@ jobs:
         with:
           channel: stable
           flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      # 🔑 إنشاء مجلد android/ إذا لم يكن موجوداً
+      - name: Add Android platform support (if missing)
+        run: flutter create --platforms=android --no-overwrite .
 
       - name: Install dependencies
         run: flutter pub get
 
       - name: Build APK (release)
         run: flutter build apk --release
-        # Sortie : build/app/outputs/flutter-apk/app-release.apk
 
       - name: Upload Android APK
         uses: actions/upload-artifact@v4
@@ -119,3 +123,4 @@ jobs:
           name: DentalClinic-Android
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 30
+          if-no-files-found: error
