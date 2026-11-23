@@ -1,0 +1,69 @@
+"""Adapte le projet Android généré par `flutter create` :
+ - Kotlin récent (les plugins comme shared_preferences l'exigent)
+ - désucrage Java (flutter_local_notifications)
+ - permission Internet + HTTP en clair (le serveur du cabinet est en http://IP:8090)
+"""
+import pathlib
+import re
+
+KOTLIN = "1.9.22"
+root = pathlib.Path("android")
+
+
+def edit(path, fn):
+    p = root / path
+    if not p.exists():
+        return False
+    s = p.read_text(encoding="utf-8")
+    n = fn(s)
+    if n != s:
+        p.write_text(n, encoding="utf-8")
+        print("patched", p)
+    return True
+
+
+# 1) Kotlin
+def kotlin_settings(s):
+    return re.sub(r'(org\.jetbrains\.kotlin\.android"\s+version\s+")[\d.]+(")',
+                  r"\g<1>%s\g<2>" % KOTLIN, s)
+
+
+def kotlin_legacy(s):
+    return re.sub(r"(ext\.kotlin_version\s*=\s*')[\d.]+(')", r"\g<1>%s\g<2>" % KOTLIN, s)
+
+
+edit("settings.gradle", kotlin_settings)
+edit("settings.gradle.kts", lambda s: re.sub(
+    r'(org\.jetbrains\.kotlin\.android"\)?\s*version\s*"?)[\d.]+', r"\g<1>%s" % KOTLIN, s))
+edit("build.gradle", kotlin_legacy)
+
+
+# 2) Désucrage
+def desugar(s):
+    if "coreLibraryDesugaringEnabled" not in s:
+        s = re.sub(r"(compileOptions\s*\{)", r"\1\n        coreLibraryDesugaringEnabled true", s, count=1)
+    if "desugar_jdk_libs" not in s:
+        dep = "\ndependencies {\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'\n}\n"
+        if re.search(r"^dependencies\s*\{", s, re.M):
+            s = re.sub(r"^(dependencies\s*\{)", r"\1\n    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'",
+                       s, count=1, flags=re.M)
+        else:
+            s += dep
+    return s
+
+
+edit("app/build.gradle", desugar)
+
+
+# 3) Manifeste
+def manifest(s):
+    perms = ["android.permission.INTERNET", "android.permission.POST_NOTIFICATIONS"]
+    for perm in perms:
+        if perm not in s:
+            s = re.sub(r"(<manifest[^>]*>)", r'\1\n    <uses-permission android:name="%s"/>' % perm, s, count=1)
+    if "usesCleartextTraffic" not in s:
+        s = re.sub(r"<application", '<application\n        android:usesCleartextTraffic="true"', s, count=1)
+    return s
+
+
+edit("app/src/main/AndroidManifest.xml", manifest)
