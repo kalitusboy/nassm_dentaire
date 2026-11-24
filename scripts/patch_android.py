@@ -49,6 +49,10 @@ def desugar(s):
                        s, count=1, flags=re.M)
         else:
             s += dep
+    # 2b) Désactive « lintVital » : plante avec D8/R8 (D8BackportedMethodsGenerator)
+    #     et n'a aucun effet sur l'APK produit.
+    if "checkReleaseBuilds" not in s:
+        s = re.sub(r"(android\s*\{)", r"\1\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }", s, count=1)
     return s
 
 
