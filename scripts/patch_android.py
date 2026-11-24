@@ -1,4 +1,6 @@
 """Adapte le projet Android généré par `flutter create` :
+ - Android Gradle Plugin 8.6 + Gradle 8.7 + compileSdk 35 (les plugins récents l'exigent ;
+   l'ancien AGP 7.3 ne sait pas lire android-35.jar)
  - Kotlin récent (les plugins comme shared_preferences l'exigent)
  - désucrage Java (flutter_local_notifications)
  - permission Internet + HTTP en clair (le serveur du cabinet est en http://IP:8090)
@@ -32,6 +34,23 @@ def kotlin_legacy(s):
     return re.sub(r"(ext\.kotlin_version\s*=\s*')[\d.]+(')", r"\g<1>%s\g<2>" % KOTLIN, s)
 
 
+AGP = "8.6.0"
+GRADLE = "8.7"
+
+
+def agp_settings(s):
+    return re.sub(r'(com\.android\.application"\s+version\s+")[\d.]+(")', r"\g<1>%s\g<2>" % AGP, s)
+
+
+def agp_legacy(s):
+    return re.sub(r"(com\.android\.tools\.build:gradle:)[\d.]+", r"\g<1>%s" % AGP, s)
+
+
+edit("settings.gradle", agp_settings)
+edit("build.gradle", agp_legacy)
+edit("gradle/wrapper/gradle-wrapper.properties", lambda s: re.sub(
+    r"gradle-[\d.]+-(all|bin)\.zip", r"gradle-%s-all.zip" % GRADLE, s))
+
 edit("settings.gradle", kotlin_settings)
 edit("settings.gradle.kts", lambda s: re.sub(
     r'(org\.jetbrains\.kotlin\.android"\)?\s*version\s*"?)[\d.]+', r"\g<1>%s" % KOTLIN, s))
@@ -49,10 +68,13 @@ def desugar(s):
                        s, count=1, flags=re.M)
         else:
             s += dep
+    # compileSdk 35
+    s = re.sub(r"compileSdkVersion\s+flutter\.compileSdkVersion", "compileSdkVersion 35", s)
+    s = re.sub(r"compileSdk\s*=?\s*flutter\.compileSdkVersion", "compileSdk = 35", s)
     # 2b) Désactive « lintVital » : plante avec D8/R8 (D8BackportedMethodsGenerator)
     #     et n'a aucun effet sur l'APK produit.
     if "checkReleaseBuilds" not in s:
-        s = re.sub(r"(android\s*\{)", r"\1\n    lintOptions {\n        checkReleaseBuilds false\n        abortOnError false\n    }", s, count=1)
+        s = re.sub(r"(android\s*\{)", r"\1\n    lint {\n        checkReleaseBuilds false\n        abortOnError false\n    }", s, count=1)
     return s
 
 
