@@ -1,0 +1,138 @@
+name: Build Dental Clinic (Windows + Android)
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  FLUTTER_VERSION: '3.24.0'   # يتضمن Dart 3.5.0 — يحقق شرط pubspec (sdk: '>=3.3.0 <4.0.0')
+  POCKETBASE_VERSION: '0.22.0' # متوافق مع حزمة dart pocketbase ^0.21.0 (إصدارات 0.22+ من الحزمة تتطلب خادم 0.23)
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-windows:
+    # 🔑 تثبيت الإصدار على 2022 لتجنب مشكلة Visual Studio 2026 في windows-2025
+    runs-on: windows-2022
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Enable Windows desktop
+        run: flutter config --enable-windows-desktop
+
+      - name: Add Windows platform support (if missing)
+        # flutter create لا يستبدل الملفات الموجودة افتراضياً (lib/ و pubspec تبقى كما هي)
+        run: flutter create --platforms=windows .
+
+      - name: Apply DentaGest icon (Windows)
+        shell: pwsh
+        run: |
+          # 🔧 إصلاح: assets/app_icon.ico غير موجود في المشروع — نتجاهله بدل أن يفشل البناء
+          if (Test-Path assets\app_icon.ico) {
+            Copy-Item -Force assets\app_icon.ico windows\runner\resources\app_icon.ico
+          } else {
+            Write-Host "⚠ assets\app_icon.ico غير موجود — سيتم استخدام الأيقونة الافتراضية"
+          }
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build Windows (release)
+        run: flutter build windows --release
+
+      - name: Download PocketBase (Windows)
+        shell: pwsh
+        run: |
+          $url = "https://github.com/pocketbase/pocketbase/releases/download/v${{ env.POCKETBASE_VERSION }}/pocketbase_${{ env.POCKETBASE_VERSION }}_windows_amd64.zip"
+          Invoke-WebRequest -Uri $url -OutFile pb.zip
+          Expand-Archive -Path pb.zip -DestinationPath pocketbase_bin -Force
+
+      - name: Assemble app folder (app + embedded database)
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path dist_windows -Force
+          Copy-Item -Recurse -Force build\windows\x64\runner\Release\* dist_windows\
+          # renommé pour pouvoir l'arrêter sans risque de toucher un autre PocketBase
+          Copy-Item -Force pocketbase_bin\pocketbase.exe dist_windows\dental_db.exe
+
+      - name: Build installer (Setup.exe)
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /DAppVersion=1.1.0 installer\setup.iss
+          if (-not (Test-Path installer_output\CabinetDentaire-Setup.exe)) { throw "Installer not built" }
+
+      - name: Package portable ZIP
+        shell: pwsh
+        run: Compress-Archive -Path dist_windows\* -DestinationPath CabinetDentaire-Portable.zip -Force
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: CabinetDentaire-Setup
+          path: installer_output/CabinetDentaire-Setup.exe
+          retention-days: 30
+          if-no-files-found: error
+
+      - name: Upload portable ZIP
+        uses: actions/upload-artifact@v4
+        with:
+          name: CabinetDentaire-Portable
+          path: CabinetDentaire-Portable.zip
+          retention-days: 30
+          if-no-files-found: error
+
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Java (JDK 17)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          cache: true
+
+      - name: Add Android platform support (if missing)
+        run: flutter create --platforms=android --org com.example .
+
+      - name: Patch Android project (Kotlin, desugaring, Internet, HTTP)
+        run: python3 scripts/patch_android.py
+
+      - name: Install dependencies
+        run: flutter pub get
+
+      - name: Build APK (release)
+        # ملاحظة: بدون keystore حقيقي، سيوقّع Flutter الـ APK بمفاتيح debug
+        # (يعمل للتثبيت المباشر داخل العيادة، لكن لا يصلح للنشر على Google Play)
+        run: flutter build apk --release
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: CabinetDentaire-Android
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 30
+          if-no-files-found: error
+          
